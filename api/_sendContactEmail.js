@@ -1,12 +1,9 @@
 // Shared logic for handling a contact-form submission and emailing it via Resend.
-// This file is transport-agnostic: it takes a plain payload object and an API
-// key and returns { statusCode, body }. The Cloudflare Pages Function
-// (functions/api/contact.js) calls this function, so there's exactly one place
-// validation/sending logic lives.
 import { Resend } from 'resend'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const TO_ADDRESS = '345mandalmahesh@gmail.com'
+const DEFAULT_TO = '345mandalmahesh@gmail.com'
+const DEFAULT_FROM = 'Portfolio Contact Form <onboarding@resend.dev>'
 
 function escapeHtml(str) {
   return String(str)
@@ -17,13 +14,23 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;')
 }
 
-export async function sendContactEmail(payload, apiKey = process.env?.RESEND_API_KEY) {
-  const { name, email, subject, message, website } = payload || {}
-
-  // Honeypot: real visitors never fill this hidden field, bots often do.
-  if (website) {
-    return { statusCode: 200, body: { success: true } }
+function formatSubmittedAt(date) {
+  const iso = date.toISOString()
+  let kathmandu = iso
+  try {
+    kathmandu = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kathmandu',
+      dateStyle: 'full',
+      timeStyle: 'long',
+    }).format(date)
+  } catch {
+    kathmandu = date.toUTCString()
   }
+  return { iso, display: kathmandu }
+}
+
+export function validateContactPayload(payload) {
+  const { name, email, subject, message } = payload || {}
 
   const cleanName = typeof name === 'string' ? name.trim() : ''
   const cleanEmail = typeof email === 'string' ? email.trim() : ''
@@ -32,58 +39,102 @@ export async function sendContactEmail(payload, apiKey = process.env?.RESEND_API
 
   const errors = {}
   if (!cleanName) errors.name = 'Name is required.'
+  else if (cleanName.length > 120) errors.name = 'Name is too long.'
   if (!cleanEmail) errors.email = 'Email is required.'
   else if (!EMAIL_RE.test(cleanEmail)) errors.email = 'Enter a valid email address.'
+  if (!cleanSubject) errors.subject = 'Subject is required.'
+  else if (cleanSubject.length > 200) errors.subject = 'Subject is too long.'
   if (!cleanMessage) errors.message = 'Message is required.'
-  else if (cleanMessage.length < 10) errors.message = 'Message is too short.'
+  else if (cleanMessage.length < 10) errors.message = 'Message is too short — add a bit more detail.'
+  else if (cleanMessage.length > 5000) errors.message = 'Message is too long.'
 
   if (Object.keys(errors).length > 0) {
+    return { ok: false, errors }
+  }
+
+  return {
+    ok: true,
+    fields: {
+      name: cleanName,
+      email: cleanEmail,
+      subject: cleanSubject,
+      message: cleanMessage,
+    },
+  }
+}
+
+export async function sendContactEmail(fields, env = {}) {
+  const apiKey = env.RESEND_API_KEY
+  const toAddress = env.CONTACT_TO_EMAIL || DEFAULT_TO
+  const fromAddress = env.RESEND_FROM || DEFAULT_FROM
+
+  if (!apiKey) {
+    console.error('RESEND_API_KEY is not set. Add it to the host environment variables.')
     return {
-      statusCode: 400,
-      body: { success: false, error: 'Please fix the highlighted fields.', fieldErrors: errors },
+      ok: false,
+      statusCode: 500,
+      error: 'Email service is not configured on the server.',
     }
   }
 
-  if (!apiKey) {
-    console.error('RESEND_API_KEY is not set. Add it to your host\'s environment variables in production.')
-    return { statusCode: 500, body: { success: false, error: 'Email service is not configured on the server.' } }
-  }
-
+  const submittedAt = formatSubmittedAt(new Date())
   const resend = new Resend(apiKey)
-  const finalSubject = cleanSubject || `Portfolio inquiry from ${cleanName}`
+  const finalSubject = fields.subject
 
   try {
     const { data, error } = await resend.emails.send({
-      // onboarding@resend.dev works out of the box with no domain setup and
-      // can deliver to any recipient, including Gmail. Swap in a verified
-      // sender address later if you connect your own domain in Resend.
-      from: 'Portfolio Contact Form <onboarding@resend.dev>',
-      to: [TO_ADDRESS],
-      replyTo: cleanEmail,
-      subject: finalSubject,
-      text: `From: ${cleanName} <${cleanEmail}>\nSubject: ${finalSubject}\n\n${cleanMessage}`,
+      from: fromAddress,
+      to: [toAddress],
+      replyTo: fields.email,
+      subject: `[Portfolio] ${finalSubject}`,
+      text: [
+        `New portfolio contact form submission`,
+        ``,
+        `Name: ${fields.name}`,
+        `Email: ${fields.email}`,
+        `Subject: ${finalSubject}`,
+        `Submitted: ${submittedAt.display}`,
+        `Submitted (UTC): ${submittedAt.iso}`,
+        ``,
+        `Message:`,
+        fields.message,
+        ``,
+        `Reply directly to this email to respond to ${fields.name}.`,
+      ].join('\n'),
       html: `
-        <div style="font-family: Arial, sans-serif; font-size: 15px; color: #1a1a1a;">
-          <p><strong>Name:</strong> ${escapeHtml(cleanName)}</p>
-          <p><strong>Email:</strong> ${escapeHtml(cleanEmail)}</p>
+        <div style="font-family: Arial, sans-serif; font-size: 15px; color: #1a1a1a; line-height: 1.5;">
+          <h2 style="color: #111; font-size: 18px;">New portfolio inquiry</h2>
+          <p><strong>Name:</strong> ${escapeHtml(fields.name)}</p>
+          <p><strong>Email:</strong> <a href="mailto:${escapeHtml(fields.email)}">${escapeHtml(fields.email)}</a></p>
           <p><strong>Subject:</strong> ${escapeHtml(finalSubject)}</p>
+          <p><strong>Submitted:</strong> ${escapeHtml(submittedAt.display)}</p>
+          <p><strong>Submitted (UTC):</strong> ${escapeHtml(submittedAt.iso)}</p>
           <p><strong>Message:</strong></p>
-          <p style="white-space: pre-wrap;">${escapeHtml(cleanMessage)}</p>
+          <p style="white-space: pre-wrap; background: #f6f6f6; padding: 12px 14px; border-radius: 8px;">${escapeHtml(fields.message)}</p>
+          <p style="color: #555; font-size: 13px;">Reply to this email to respond directly to ${escapeHtml(fields.name)}.</p>
         </div>
       `,
     })
 
     if (error) {
-      console.error('Resend error:', error)
+      console.error('[contact] Resend rejected the email:', error)
       return {
+        ok: false,
         statusCode: 502,
-        body: { success: false, error: 'The email service rejected the message. Please try again later.' },
+        error: 'The email service rejected the message. Please try again later.',
+        submittedAt,
       }
     }
 
-    return { statusCode: 200, body: { success: true, id: data?.id } }
+    console.log(`[contact] Email accepted by Resend. id=${data?.id} to=${toAddress}`)
+    return { ok: true, id: data?.id, submittedAt }
   } catch (err) {
     console.error('Unexpected error sending email:', err)
-    return { statusCode: 500, body: { success: false, error: 'Unexpected server error. Please try again later.' } }
+    return {
+      ok: false,
+      statusCode: 500,
+      error: 'Unexpected server error. Please try again later.',
+      submittedAt,
+    }
   }
 }

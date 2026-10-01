@@ -1,8 +1,4 @@
-// Cloudflare Pages Function: POST /api/contact
-// This runs on Cloudflare's edge (never in the visitor's browser), so
-// RESEND_API_KEY is never exposed to frontend code. Your Resend API key goes in
-// an environment variable named RESEND_API_KEY in the Cloudflare dashboard.
-import { sendContactEmail } from '../../api/_sendContactEmail.js'
+import { sendContactEmail, validateContactPayload } from '../../api/_sendContactEmail.js'
 
 export async function onRequest(context) {
   const { request, env } = context
@@ -24,9 +20,28 @@ export async function onRequest(context) {
     })
   }
 
-  const { statusCode, body } = await sendContactEmail(payload, env.RESEND_API_KEY)
-  return new Response(JSON.stringify(body), {
-    status: statusCode,
+  const validated = validateContactPayload(payload)
+  if (!validated.ok) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: 'Please fix the highlighted fields.',
+        fieldErrors: validated.errors,
+      }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } },
+    )
+  }
+
+  const sent = await sendContactEmail(validated.fields, env)
+  if (!sent.ok) {
+    return new Response(JSON.stringify({ success: false, error: sent.error }), {
+      status: sent.statusCode || 500,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  return new Response(JSON.stringify({ success: true, id: sent.id }), {
+    status: 200,
     headers: { 'Content-Type': 'application/json' },
   })
 }

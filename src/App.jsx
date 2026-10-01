@@ -1,8 +1,8 @@
 import { useRef } from 'react'
 import About from './components/About'
-import Achievements from './components/Achievements'
 import BgFx from './components/BgFx'
 import Contact from './components/Contact'
+import Experience from './components/Experience'
 import Footer from './components/Footer'
 import Hero from './components/Hero'
 import Navbar from './components/Navbar'
@@ -10,7 +10,7 @@ import Projects from './components/Projects'
 import Skills from './components/Skills'
 import useScrollSpy from './hooks/useScrollSpy'
 
-const SECTION_IDS = ['home', 'about', 'skills', 'projects', 'achievements', 'contact']
+const SECTION_IDS = ['home', 'about', 'skills', 'projects', 'experience', 'contact']
 
 export default function App() {
   const activeSection = useScrollSpy(SECTION_IDS)
@@ -31,7 +31,7 @@ export default function App() {
         <About ref={aboutRef} />
         <Skills ref={skillsRef} />
         <Projects />
-        <Achievements />
+        <Experience />
         <Contact />
       </main>
       <Footer />

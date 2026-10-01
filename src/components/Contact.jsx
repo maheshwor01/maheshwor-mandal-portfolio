@@ -6,9 +6,8 @@ export default function Contact() {
     email: '',
     subject: '',
     message: '',
-    website: '', // honeypot field, kept empty by real visitors, hidden via CSS
   })
-  const [status, setStatus] = useState('idle') // idle | sending | success | error
+  const [status, setStatus] = useState('idle')
   const [errorText, setErrorText] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
 
@@ -22,6 +21,7 @@ export default function Contact() {
     if (!form.name.trim()) errors.name = 'Please enter your name.'
     if (!form.email.trim()) errors.email = 'Please enter your email.'
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.email = 'Enter a valid email address.'
+    if (!form.subject.trim()) errors.subject = 'Please enter a subject.'
     if (!form.message.trim()) errors.message = 'Please enter a message.'
     else if (form.message.trim().length < 10) errors.message = 'Message is too short — add a bit more detail.'
     return errors
@@ -52,13 +52,13 @@ export default function Contact() {
       try {
         result = await response.json()
       } catch {
-        // response wasn't JSON (e.g. the /api route doesn't exist in this environment)
+        result = null
       }
 
       if (response.ok && result?.success) {
         setStatus('success')
         setFieldErrors({})
-        setForm({ name: '', email: '', subject: '', message: '', website: '' })
+        setForm({ name: '', email: '', subject: '', message: '' })
       } else {
         setStatus('error')
         setFieldErrors(result?.fieldErrors || {})
@@ -148,17 +148,6 @@ export default function Contact() {
 
           <div className="form-card">
             <form id="contactForm" onSubmit={handleSubmit} noValidate>
-              {/* Honeypot: hidden from real visitors via CSS + tabIndex, bots often fill every field they see */}
-              <input
-                type="text"
-                name="website"
-                value={form.website}
-                onChange={handleChange}
-                autoComplete="off"
-                tabIndex={-1}
-                aria-hidden="true"
-                style={{ position: 'absolute', left: '-9999px', width: '1px', height: '1px', opacity: 0 }}
-              />
               <div className="form-row">
                 <label htmlFor="cName">Your Name</label>
                 <input
@@ -198,9 +187,14 @@ export default function Contact() {
                   id="cSubject"
                   name="subject"
                   placeholder="Internship Opportunity / Collaboration"
+                  required
                   value={form.subject}
                   onChange={handleChange}
+                  style={fieldErrors.subject ? { borderColor: '#e05555' } : undefined}
                 />
+                {fieldErrors.subject && (
+                  <small style={{ color: '#e05555', display: 'block', marginTop: 4 }}>{fieldErrors.subject}</small>
+                )}
               </div>
               <div className="form-row">
                 <label htmlFor="cMessage">Message</label>
